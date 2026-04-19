@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>会議進捗ボード</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK (CDN) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<style>
+:root {
+  --bg:       #0f1117;
+  --bg2:      #181c27;
+  --bg3:      #1e2333;
+  --border:   rgba(255,255,255,0.08);
+  --border2:  rgba(255,255,255,0.15);
+  --text:     #e8eaf0;
+  --text2:    #8b90a0;
+  --text3:    #555a6a;
+  --accent:   #4f8ef7;
+  --accent2:  #7b5ea7;
+
+  /* ステータスカラー */
+  --done-bg:   #1a3a2a; --done-bd:  #2ecc71; --done-tx:  #5ddf98;
+  --active-bg: #1a2a40; --active-bd:#4f8ef7; --active-tx:#7eb3fc;
+  --ready-bg:  #2a2a1a; --ready-bd: #f0b429; --ready-tx: #f5c842;
+  --wait-bg:   #1e2333; --wait-bd:  #3a3f52; --wait-tx:  #6b7188;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:'Noto Sans JP',sans-serif;font-size:14px;min-height:100vh;}
+
+/* ─── HEADER ─── */
+header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 24px;height:56px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;}
+.logo{font-family:'DM Mono',monospace;font-size:15px;font-weight:500;color:var(--accent);letter-spacing:-0.5px;}
+.logo span{color:var(--text2);}
+header nav{margin-left:auto;display:flex;gap:8px;align-items:center;}
+
+/* ─── BUTTONS ─── */
+.btn{border:1px solid var(--border2);background:transparent;color:var(--text);padding:6px 14px;border-radius:6px;font-family:inherit;font-size:13px;cursor:pointer;transition:all .15s;}
+.btn:hover{background:var(--bg3);border-color:var(--accent);color:var(--accent);}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500;}
+.btn-primary:hover{background:#3a7aee;border-color:#3a7aee;color:#fff;}
+.btn-sm{padding:4px 10px;font-size:12px;}
+.btn-danger{border-color:#c0392b;color:#e74c3c;}
+.btn-danger:hover{background:rgba(231,76,60,.1);}
+.btn-success{background:var(--done-bg);border-color:var(--done-bd);color:var(--done-tx);}
+.btn-success:hover{background:#1f4a32;}
+.btn-undo{border-color:var(--text3);color:var(--text3);}
+.btn-undo:hover{border-color:var(--ready-bd);color:var(--ready-tx);background:var(--ready-bg);}
+
+/* ─── LAYOUT ─── */
+main{padding:24px;max-width:1100px;margin:0 auto;}
+
+/* ─── ROOMS ─── */
+.rooms-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;}
+.rooms-header h1{font-size:20px;font-weight:500;}
+.rooms-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;}
+.room-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;cursor:pointer;transition:all .2s;position:relative;overflow:hidden;}
+.room-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--accent),var(--accent2));opacity:0;transition:opacity .2s;}
+.room-card:hover{border-color:var(--border2);transform:translateY(-2px);}
+.room-card:hover::before{opacity:1;}
+.room-card h2{font-size:15px;font-weight:500;margin-bottom:8px;}
+.room-meta{color:var(--text2);font-size:12px;line-height:1.9;}
+.room-progress{margin-top:12px;display:flex;gap:6px;flex-wrap:wrap;}
+.mini-badge{font-size:11px;padding:2px 8px;border-radius:4px;font-weight:500;border:1px solid;}
+.mb-done  {background:var(--done-bg);  color:var(--done-tx);  border-color:var(--done-bd);}
+.mb-active{background:var(--active-bg);color:var(--active-tx);border-color:var(--active-bd);}
+.mb-ready {background:var(--ready-bg); color:var(--ready-tx); border-color:var(--ready-bd);}
+.mb-wait  {background:var(--wait-bg);  color:var(--wait-tx);  border-color:var(--wait-bd);}
+.empty-state{grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--text3);}
+.empty-state p{margin-bottom:16px;font-size:15px;}
+
+/* ─── ROOM DETAIL ─── */
+#view-room{display:none;}
+.room-detail-header{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px 24px;margin-bottom:20px;display:flex;align-items:flex-start;gap:16px;}
+.room-detail-info{flex:1;}
+.room-detail-info h1{font-size:20px;font-weight:500;margin-bottom:6px;}
+.room-detail-meta{display:flex;gap:16px;flex-wrap:wrap;color:var(--text2);font-size:13px;margin-bottom:10px;}
+.admin-area{flex-shrink:0;display:flex;flex-direction:column;align-items:flex-end;gap:6px;}
+.admin-label{font-size:11px;color:var(--done-tx);background:var(--done-bg);border:1px solid var(--done-bd);padding:2px 8px;border-radius:4px;}
+
+/* progress bar */
+.progress-bar-wrap{height:3px;background:var(--bg3);border-radius:2px;overflow:hidden;}
+.progress-bar{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:2px;transition:width .4s ease;}
+
+/* ─── GROUPS TABLE ─── */
+.groups-table{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.groups-table-header{display:grid;grid-template-columns:44px 1fr 140px 1fr;padding:10px 20px;background:var(--bg3);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:500;}
+.group-row{display:grid;grid-template-columns:44px 1fr 140px 1fr;padding:14px 20px;border-bottom:1px solid var(--border);align-items:center;transition:background .15s;}
+.group-row:last-child{border-bottom:none;}
+.group-row:hover{background:rgba(255,255,255,.02);}
+.group-row.status-active{background:rgba(79,142,247,.06);}
+.group-row.status-done{opacity:.55;}
+.seq-num{font-family:'DM Mono',monospace;font-size:13px;color:var(--text3);}
+.group-name{font-size:14px;}
+.status-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:500;border:1px solid;}
+.sb-done  {background:var(--done-bg);  color:var(--done-tx);  border-color:var(--done-bd);}
+.sb-active{background:var(--active-bg);color:var(--active-tx);border-color:var(--active-bd);}
+.sb-ready {background:var(--ready-bg); color:var(--ready-tx); border-color:var(--ready-bd);}
+.sb-wait  {background:var(--wait-bg);  color:var(--wait-tx);  border-color:var(--wait-bd);}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0;}
+.dot.blink{animation:blink 1.2s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+.row-actions{display:flex;gap:6px;justify-content:flex-end;}
+
+/* ─── 対応中になった行のハイライト（ゆっくり点滅） ─── */
+@keyframes active-highlight {
+  0%,100% { background: rgba(79,142,247,0.28); box-shadow: inset 4px 0 0 var(--active-bd); }
+  50%     { background: rgba(79,142,247,0.05); box-shadow: inset 4px 0 0 rgba(79,142,247,0.3); }
+}
+.group-row.status-active.just-changed {
+  animation: active-highlight 2.4s ease-in-out 12 forwards;
+}
+
+/* ─── MODAL ─── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:200;align-items:center;justify-content:center;backdrop-filter:blur(4px);}
+.modal-overlay.show{display:flex;}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:16px;padding:28px;width:500px;max-width:calc(100vw - 32px);max-height:88vh;overflow-y:auto;}
+.modal h2{font-size:17px;font-weight:500;margin-bottom:20px;}
+.form-group{margin-bottom:16px;}
+label{display:block;font-size:12px;color:var(--text2);margin-bottom:6px;font-weight:500;text-transform:uppercase;letter-spacing:.5px;}
+input,textarea,select{width:100%;background:var(--bg3);border:1px solid var(--border2);color:var(--text);padding:9px 12px;border-radius:8px;font-family:inherit;font-size:14px;outline:none;transition:border-color .15s;}
+input:focus,textarea:focus{border-color:var(--accent);}
+textarea{resize:vertical;min-height:90px;}
+input[type="number"]{width:80px;}
+.form-hint{font-size:11px;color:var(--text3);margin-top:5px;}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid var(--border);}
+
+/* status editor in create form */
+.status-editor{background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;}
+.status-row{display:grid;grid-template-columns:70px 1fr;gap:8px;align-items:center;font-size:12px;}
+.status-row .s-label{color:var(--text3);}
+.status-row input{padding:5px 8px;font-size:13px;}
+
+/* ─── GROUP EDIT MODAL ─── */
+.edit-group-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;max-height:340px;overflow-y:auto;}
+.edit-group-row{display:grid;grid-template-columns:24px 1fr auto auto;gap:8px;align-items:center;background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px 10px;transition:border-color .15s;}
+.drag-handle{color:var(--text3);cursor:grab;font-size:16px;line-height:1;user-select:none;text-align:center;}
+.drag-handle:active{cursor:grabbing;}
+.edit-group-row.drag-over{border-color:var(--accent);background:rgba(79,142,247,.08);}
+.edit-group-row.dragging{opacity:.4;}
+.edit-group-row input{background:transparent;border:none;border-bottom:1px solid transparent;padding:2px 0;font-size:13px;color:var(--text);width:100%;}
+.edit-group-row input:focus{border-bottom-color:var(--accent);outline:none;}
+.edit-status-badge{font-size:10px;padding:2px 6px;border-radius:3px;border:1px solid;white-space:nowrap;flex-shrink:0;}
+.btn-icon{background:transparent;border:none;color:var(--text3);cursor:pointer;padding:2px 6px;border-radius:4px;font-size:15px;line-height:1;transition:all .15s;}
+.btn-icon:hover{color:#e74c3c;background:rgba(231,76,60,.1);}
+.add-group-row{display:flex;gap:8px;margin-top:4px;}
+.add-group-row input{flex:1;}
+
+/* ─── REALTIME badge ─── */
+.realtime-badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--done-tx);padding:3px 8px;border-radius:4px;background:var(--done-bg);border:1px solid var(--done-bd);}
+
+/* ─── TOAST ─── */
+.toast{position:fixed;bottom:24px;right:24px;background:var(--bg3);border:1px solid var(--border2);color:var(--text);padding:10px 16px;border-radius:8px;font-size:13px;z-index:999;transform:translateY(8px);opacity:0;transition:all .2s;pointer-events:none;}
+.toast.show{transform:translateY(0);opacity:1;}
+
+/* ─── SETUP BANNER ─── */
+.setup-banner{background:rgba(240,180,41,.07);border:1px solid rgba(240,180,41,.3);border-radius:10px;padding:14px 18px;font-size:13px;color:var(--ready-tx);margin-bottom:20px;line-height:1.7;}
+.setup-banner code{font-family:'DM Mono',monospace;background:rgba(0,0,0,.3);padding:1px 6px;border-radius:3px;font-size:12px;}
+.setup-banner strong{font-weight:500;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">meeting<span>/</span>board</div>
+  <nav>
+    <span class="realtime-badge" id="firebase-status"><span class="dot"></span>接続確認中…</span>
+    <button class="btn btn-sm" id="btn-sound-toggle" onclick="toggleSound()" title="通知音のON/OFF">🔔 音ON</button>
+    <button class="btn btn-sm" id="btn-back" onclick="showView('rooms')" style="display:none">← 一覧</button>
+    <button class="btn btn-primary btn-sm" onclick="openCreateRoom()">+ 部屋を作成</button>
+  </nav>
+</header>
+
+<main>
+  <!-- ─── SETUP BANNER（未設定時） ─── -->
+  <div class="setup-banner" id="setup-banner" style="display:none">
+    ⚡ <strong>Firebaseが未設定です。</strong>
+    このHTMLファイルをテキストエディタで開き、下部の <code>FIREBASE_CONFIG</code> にFirebaseコンソールで取得した値を貼り付けてください。
+    設定後にブラウザを再読み込みすると複数端末でリアルタイム共有できます。
+  </div>
+
+  <!-- ─── ROOMS LIST ─── -->
+  <div id="view-rooms">
+    <div class="rooms-header">
+      <h1>会議ルーム一覧</h1>
+    </div>
+    <div class="rooms-grid" id="rooms-grid">
+      <div class="empty-state"><p>読み込み中…</p></div>
+    </div>
+  </div>
+
+  <!-- ─── ROOM DETAIL ─── -->
+  <div id="view-room">
+    <div class="room-detail-header">
+      <div class="room-detail-info">
+        <h1 id="room-title"></h1>
+        <div class="room-detail-meta" id="room-meta"></div>
+        <div class="progress-bar-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+      </div>
+      <div class="admin-area">
+        <div id="admin-label" class="admin-label" style="display:none">🔐 管理者モード</div>
+        <button class="btn btn-sm" id="btn-admin-login" onclick="openAdminLogin()">🔐 管理者ログイン</button>
+        <button class="btn btn-sm" id="btn-edit-groups" style="display:none" onclick="openEditGroups()">✎ グループ編集</button>
+        <button class="btn btn-sm btn-danger" id="btn-delete-room" style="display:none" onclick="openDeleteRoom()">🗑 部屋を破棄</button>
+        <button class="btn btn-sm btn-danger" id="btn-admin-logout" style="display:none" onclick="adminLogout()">ログアウト</button>
+      </div>
+    </div>
+    <div class="groups-table">
+      <div class="groups-table-header">
+        <span>#</span><span>課・担当</span><span>ステータス</span><span></span>
+      </div>
+      <div id="groups-list"></div>
+    </div>
+  </div>
+</main>
+
+<!-- ─── MODAL: パスワードなし確認 ─── -->
+<div class="modal-overlay" id="modal-nopass-confirm">
+  <div class="modal">
+    <h2>パスワードなしで設定しますか？</h2>
+    <p style="color:var(--text2);font-size:13px;line-height:1.8;margin-bottom:0">
+      パスワードなしの場合、このルームを開いた全員が管理者として操作できます。
+    </p>
+    <div class="modal-footer">
+      <button class="btn" onclick="cancelNoPass()">戻る</button>
+      <button class="btn btn-primary" onclick="confirmNoPass()">このまま作成する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── MODAL: 部屋破棄確認 ─── -->
+<div class="modal-overlay" id="modal-delete-room">
+  <div class="modal">
+    <h2 style="color:#e74c3c">🗑 部屋を破棄しますか？</h2>
+    <p style="color:var(--text2);font-size:13px;line-height:1.8;margin-bottom:0">
+      この操作は取り消せません。<br>
+      Firebaseのデータも完全に削除されます。
+    </p>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-delete-room')">キャンセル</button>
+      <button class="btn btn-danger" onclick="deleteRoom()">破棄する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── MODAL: グループ編集 ─── -->
+<div class="modal-overlay" id="modal-edit-groups">
+  <div class="modal">
+    <h2>✎ グループを編集</h2>
+    <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.7">
+      ドラッグ（☰）で並び替え・課名を直接クリックして編集・削除ができます。<br>
+      「済み」のグループを削除するとステータスが再計算されます。
+    </p>
+    <div class="edit-group-list" id="edit-group-list"></div>
+    <div class="add-group-row">
+      <input type="text" id="new-group-name" placeholder="新しい課名を入力…" onkeydown="if(event.key==='Enter')addGroupInEdit()">
+      <button class="btn btn-sm btn-primary" onclick="addGroupInEdit()">+ 追加</button>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-edit-groups')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveEditGroups()">保存する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── MODAL: 部屋作成 ─── -->
+<div class="modal-overlay" id="modal-create">
+  <div class="modal">
+    <h2>新しい会議ルームを作成</h2>
+    <div class="form-group">
+      <label>会議名 <span style="color:#e74c3c">*</span></label>
+      <input type="text" id="f-name" placeholder="例：庁議">
+    </div>
+    <div class="form-group">
+      <label>日時 <span style="color:#e74c3c">*</span></label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="date" id="f-date" style="flex:1;min-width:140px">
+        <select id="f-hour" style="width:72px">
+        </select>
+        <span style="color:var(--text2);font-size:13px">時</span>
+        <select id="f-minute" style="width:72px">
+          <option value="00">00</option>
+          <option value="05">05</option>
+          <option value="10">10</option>
+          <option value="15">15</option>
+          <option value="20">20</option>
+          <option value="25">25</option>
+          <option value="30">30</option>
+          <option value="35">35</option>
+          <option value="40">40</option>
+          <option value="45">45</option>
+          <option value="50">50</option>
+          <option value="55">55</option>
+        </select>
+        <span style="color:var(--text2);font-size:13px">分</span>
+      </div>
+      <div class="form-hint" style="color:var(--ready-tx);margin-top:6px">⚠ 会議日から1週間経過すると自動的に削除されます</div>
+    </div>
+    <div class="form-group">
+      <label>場所</label>
+      <input type="text" id="f-place" placeholder="例：庁議室">
+    </div>
+    <div class="form-group">
+      <label>所属</label>
+      <input type="text" id="f-affiliation" placeholder="例：〇〇課">
+    </div>
+    <div class="form-group">
+      <label>作成者 <span style="color:#e74c3c">*</span></label>
+      <input type="text" id="f-creator" placeholder="">
+    </div>
+    <div class="form-group">
+      <label>参加グループ（1行に1課）</label>
+      <textarea id="f-groups" placeholder="総務課&#10;企画政策課&#10;デジタル社会推進課&#10;福祉課&#10;建設課"></textarea>
+      <div class="form-hint">上から順番に並べてください。ステータスは自動で割り当てます。</div>
+    </div>
+    <div class="form-group">
+      <label>「準備中」にする件数（対応中の次のN課）</label>
+      <input type="number" id="f-prepare" value="2" min="1" max="10">
+      <div class="form-hint">例：2を設定すると「審議中」の次の2課が「準備中」になります</div>
+    </div>
+    <div class="form-group">
+      <label>ステータス名のカスタマイズ</label>
+      <div class="status-editor">
+        <div class="status-row"><span class="s-label">完了済み</span><input type="text" id="sname-done"   value="済み"></div>
+        <div class="status-row"><span class="s-label">進行中</span> <input type="text" id="sname-active" value="対応中"></div>
+        <div class="status-row"><span class="s-label">次の準備</span><input type="text" id="sname-ready"  value="準備中"></div>
+        <div class="status-row"><span class="s-label">まだ先</span> <input type="text" id="sname-wait"   value="待機中"></div>
+      </div>
+      <div class="form-hint">この部屋専用のステータス名です。変更すると全閲覧者に反映されます。</div>
+    </div>
+    <div class="form-group">
+      <label>管理者パスワード（この部屋専用）<span style="color:var(--text3);font-weight:400;margin-left:6px">任意</span></label>
+      <input type="password" id="f-password" placeholder="空欄の場合はパスワードなしで設定">
+      <div class="form-hint">空欄のままにすると、誰でも管理者として操作できます。</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-create')">キャンセル</button>
+      <button class="btn btn-primary" onclick="createRoom()">作成する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── MODAL: 管理者ログイン ─── -->
+<div class="modal-overlay" id="modal-admin-login">
+  <div class="modal">
+    <h2>🔐 管理者ログイン</h2>
+    <div class="form-group">
+      <label>パスワード</label>
+      <input type="password" id="f-admin-pw" placeholder="この部屋のパスワード" onkeydown="if(event.key==='Enter')adminLogin()">
+    </div>
+    <div id="admin-login-error" style="color:#e74c3c;font-size:13px;margin-top:-8px;display:none">パスワードが違います</div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-admin-login')">キャンセル</button>
+      <button class="btn btn-primary" onclick="adminLogin()">ログイン</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── TOAST ─── -->
+<div class="toast" id="toast"></div>
+
+<!-- ═══════════════════════════════════════════════════════
+     ★ FIREBASE CONFIG ★
+     Firebaseコンソール → プロジェクトの設定 → マイアプリ
+     から取得した値をここに貼り付けてください
+═══════════════════════════════════════════════════════ -->
+<script>
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyCFTyx0_MAySR4eNyi6zoW4kF7zFpjv4YQ",
+  authDomain:        "yomitan-meeting-board.firebaseapp.com",
+  databaseURL:       "https://yomitan-meeting-board-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:         "yomitan-meeting-board",
+  storageBucket:     "yomitan-meeting-board.firebasestorage.app",
+  messagingSenderId: "754857004692",
+  appId:             "1:754857004692:web:13cd9c513389a0faa4ae81"
+};
+</script>
+<!-- ═══════════════════════════════════════════════════════ -->
+
+<script>
+// ──────────────────────────────────────────
+//  Firebase 初期化
+// ──────────────────────────────────────────
+let firebaseReady = false;
+let fbRoomsRef = null;
+
+if (FIREBASE_CONFIG) {
+  try {
+    firebase.initializeApp(FIREBASE_CONFIG);
+    fbRoomsRef = firebase.database().ref('rooms');
+    firebaseReady = true;
+  } catch(e) {
+    console.error('Firebase init error:', e);
+  }
+}
+
+// Firebase接続状態バッジ
+const fbBadge = document.getElementById('firebase-status');
+if (firebaseReady) {
+  firebase.database().ref('.info/connected').on('value', snap => {
+    if (snap.val()) {
+      fbBadge.innerHTML = '<span class="dot blink"></span>Firebase 同期中';
+      fbBadge.style.cssText = '';
+    } else {
+      fbBadge.innerHTML = '<span class="dot"></span>オフライン';
+      fbBadge.style.color = 'var(--ready-tx)';
+    }
+  });
+} else {
+  fbBadge.innerHTML = '<span class="dot"></span>デモモード';
+  fbBadge.style.background = 'var(--ready-bg)';
+  fbBadge.style.borderColor = 'var(--ready-bd)';
+  fbBadge.style.color = 'var(--ready-tx)';
+  document.getElementById('setup-banner').style.display = 'block';
+}
+
+// ──────────────────────────────────────────
+//  アプリ状態
+// ──────────────────────────────────────────
+let localDb = {};            // roomId → roomData（デモ用）
+let currentRoomId = null;
+let isAdmin = false;
+let unsubscribeRoom = null;  // Firebase リスナー解除用
+let prevGroupStatuses = {};  // グループのステータス変化検知用 { groupName: status }
+
+// ──────────────────────────────────────────
+//  STATUS ヘルパー
+// ──────────────────────────────────────────
+const STATUS_KEYS = ['done','active','ready','wait'];
+
+// room の statusNames から表示ラベルを取得
+function getLabel(room, key) {
+  return (room.statusNames && room.statusNames[key]) || defaultLabel(key);
+}
+function defaultLabel(key) {
+  return {done:'済み', active:'対応中', ready:'準備中', wait:'待機中'}[key] || key;
+}
+const STATUS_CLS = { done:'sb-done', active:'sb-active', ready:'sb-ready', wait:'sb-wait' };
+const STATUS_MB  = { done:'mb-done', active:'mb-active', ready:'mb-ready', wait:'mb-wait' };
+const STATUS_DOT_BLINK = { active: true };
+
+// ──────────────────────────────────────────
+//  ステータス自動計算
+// ──────────────────────────────────────────
+function isRoomStarted(room) {
+  if (!room.datetime) return true; // 日時未設定は開始済み扱い
+  return Date.now() >= new Date(room.datetime).getTime();
+}
+
+function recomputeStatuses(room) {
+  const groups = room.groups;
+  const pc = room.prepareCount || 2;
+  const firstNonDoneIdx = groups.findIndex(g => g.status !== 'done');
+  if (firstNonDoneIdx === -1) return; // 全完了
+
+  const started = isRoomStarted(room);
+
+  groups.forEach((g, i) => {
+    if (g.status === 'done') return;
+    if (!started) {
+      // 会議開始前：未完了の全課を「準備中」
+      g.status = 'ready';
+    } else {
+      // 会議開始後：通常ロジック
+      if (i === firstNonDoneIdx)          g.status = 'active';
+      else if (i <= firstNonDoneIdx + pc) g.status = 'ready';
+      else                                g.status = 'wait';
+    }
+  });
+}
+
+// ──────────────────────────────────────────
+//  DATA LAYER
+// ──────────────────────────────────────────
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+
+async function saveRoom(room) {
+  if (firebaseReady) {
+    await fbRoomsRef.child(room.id).set(room);
+  } else {
+    localDb[room.id] = room;
+    try { localStorage.setItem('mb_db', JSON.stringify(localDb)); } catch(e){}
+  }
+}
+
+function loadLocalDb() {
+  try { localDb = JSON.parse(localStorage.getItem('mb_db') || '{}'); } catch(e){ localDb={}; }
+}
+
+// ──────────────────────────────────────────
+//  VIEWS
+// ──────────────────────────────────────────
+function showView(v) {
+  document.getElementById('view-rooms').style.display = v === 'rooms' ? 'block' : 'none';
+  document.getElementById('view-room').style.display  = v === 'room'  ? 'block' : 'none';
+  document.getElementById('btn-back').style.display   = v === 'room'  ? '' : 'none';
+
+  if (v === 'rooms') {
+    currentRoomId = null;
+    isAdmin = false;
+    if (unsubscribeRoom) { unsubscribeRoom(); unsubscribeRoom = null; }
+    if (roomClockTimer) { clearTimeout(roomClockTimer); roomClockTimer = null; }
+    renderRooms();
+  }
+}
+
+// ── ROOMS LIST ──
+function renderRooms() {
+  const grid = document.getElementById('rooms-grid');
+  const rooms = firebaseReady ? null : Object.values(localDb);
+
+  if (!firebaseReady) {
+    _renderRoomsHTML(rooms || []);
+    return;
+  }
+  // Firebase: 一覧はonce取得（リアルタイムは部屋詳細で行う）
+  fbRoomsRef.once('value', snap => {
+    const data = snap.val() || {};
+    _renderRoomsHTML(Object.values(data));
+  });
+}
+
+function _renderRoomsHTML(rooms) {
+  const grid = document.getElementById('rooms-grid');
+  if (!rooms.length) {
+    grid.innerHTML = `<div class="empty-state"><p>まだ会議ルームがありません</p><button class="btn btn-primary" onclick="openCreateRoom()">最初のルームを作成</button></div>`;
+    return;
+  }
+  grid.innerHTML = rooms.map(r => {
+    const counts = {done:0,active:0,ready:0,wait:0};
+    r.groups.forEach(g => counts[g.status] = (counts[g.status]||0) + 1);
+    const total = r.groups.length;
+    const pct = total ? Math.round(counts.done/total*100) : 0;
+    const dt = r.datetime ? new Date(r.datetime).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}) : '';
+    const badges = STATUS_KEYS.filter(k=>counts[k]>0).map(k=>`<span class="mini-badge ${STATUS_MB[k]}">${getLabel(r,k)} ${counts[k]}</span>`).join('');
+    return `<div class="room-card" onclick="openRoom('${r.id}')">
+      <h2>${esc(r.name)}</h2>
+      <div class="room-meta">
+        ${dt?`<div>📅 ${dt}</div>`:''}
+        ${r.place?`<div>📍 ${esc(r.place)}</div>`:''}
+        ${r.affiliation||r.creator?`<div>👤 ${[r.affiliation,r.creator].filter(Boolean).map(esc).join('　')}</div>`:''}
+        <div>🏢 ${total}課 参加・進捗 ${pct}%</div>
+      </div>
+      <div class="progress-bar-wrap" style="margin-top:10px"><div class="progress-bar" style="width:${pct}%"></div></div>
+      <div class="room-progress">${badges}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── ROOM DETAIL ──
+let roomClockTimer = null;
+
+async function openRoom(id) {
+  currentRoomId = id;
+  isAdmin = false;
+  prevGroupStatuses = {};  // 部屋を開いたときはリセット（初回は鳴らさない）
+  showView('room');
+
+  // パスワードなし部屋は自動的に管理者モード
+  const roomCheck = await getRoom(id);
+  if (roomCheck && !roomCheck.password) isAdmin = true;
+
+  // 会議開始時刻になったら自動で再描画するタイマーをセット
+  scheduleRoomClock(id);
+
+  if (firebaseReady) {
+    const ref = fbRoomsRef.child(id);
+    const handler = snap => {
+      const room = snap.val();
+      if (room) {
+        // 開始前→開始後の切り替えをFirebaseにも反映
+        const wasStarted = isRoomStarted(room);
+        recomputeStatuses(room);
+        const nowStarted = isRoomStarted(room);
+        // 開始直後（ステータスが変わった可能性があるとき）は保存
+        if (nowStarted && !wasStarted) saveRoom(room);
+        renderRoom(room);
+      }
+    };
+    ref.on('value', handler);
+    unsubscribeRoom = () => {
+      ref.off('value', handler);
+      if (roomClockTimer) { clearTimeout(roomClockTimer); roomClockTimer = null; }
+    };
+  } else {
+    renderRoom(localDb[id]);
+  }
+}
+
+function scheduleRoomClock(id) {
+  if (roomClockTimer) { clearTimeout(roomClockTimer); roomClockTimer = null; }
+  const room = firebaseReady ? null : localDb[id];
+  if (!room || !room.datetime) return;
+  const msUntilStart = new Date(room.datetime).getTime() - Date.now();
+  if (msUntilStart <= 0) return; // すでに開始済み
+  // 開始時刻ちょうどに再描画＋Firebase更新
+  roomClockTimer = setTimeout(async () => {
+    const r = await getRoom(id);
+    if (!r || currentRoomId !== id) return;
+    recomputeStatuses(r);
+    await saveRoom(r);
+    if (!firebaseReady) renderRoom(r);
+    showToast('会議開始時刻になりました');
+  }, msUntilStart + 500);
+}
+
+function renderRoom(room) {
+  if (!room) return;
+  document.getElementById('room-title').textContent = room.name;
+  const dt = room.datetime ? new Date(room.datetime).toLocaleString('ja-JP') : '';
+  document.getElementById('room-meta').innerHTML =
+    (dt ? `<span>📅 ${dt}</span>` : '') +
+    (room.place ? `<span>📍 ${esc(room.place)}</span>` : '') +
+    (room.affiliation||room.creator ? `<span>👤 ${[room.affiliation,room.creator].filter(Boolean).map(esc).join('　')}</span>` : '') +
+    `<span>🏢 ${room.groups.length}課 参加</span>`;
+
+  const total = room.groups.length;
+  const done  = room.groups.filter(g=>g.status==='done').length;
+  document.getElementById('progress-bar').style.width = (total ? done/total*100 : 0) + '%';
+
+  // 会議開始前バッジの表示切替
+  let preBadge = document.getElementById('pre-start-badge');
+  if (!isRoomStarted(room)) {
+    if (!preBadge) {
+      preBadge = document.createElement('span');
+      preBadge.id = 'pre-start-badge';
+      preBadge.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:4px;background:var(--ready-bg);border:1px solid var(--ready-bd);color:var(--ready-tx);';
+      document.getElementById('room-meta').after(preBadge);
+    }
+    const dtStr = new Date(room.datetime).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    preBadge.textContent = `⏳ 会議開始前（${dtStr} 開始予定）`;
+    preBadge.style.display = '';
+  } else if (preBadge) {
+    preBadge.style.display = 'none';
+  }
+
+  // Admin UI
+  document.getElementById('btn-admin-login').style.display  = isAdmin ? 'none' : '';
+  document.getElementById('btn-edit-groups').style.display  = isAdmin ? '' : 'none';
+  document.getElementById('btn-delete-room').style.display  = isAdmin ? '' : 'none';
+  document.getElementById('btn-admin-logout').style.display = isAdmin ? '' : 'none';
+  document.getElementById('admin-label').style.display      = isAdmin ? '' : 'none';
+
+  // 「対応中」になった行を検知
+  const changedIdxs = new Set();
+  room.groups.forEach((g, i) => {
+    const key = `${room.id}_${i}`;
+    const prev = prevGroupStatuses[key];
+    // 前回が「対応中」以外 → 今回「対応中」になった場合のみハイライト
+    if (prev !== undefined && prev !== 'active' && g.status === 'active') {
+      changedIdxs.add(i);
+    }
+    prevGroupStatuses[key] = g.status;
+  });
+
+  // 対応中になった課があれば音を鳴らす
+  if (changedIdxs.size > 0) playBeep();
+
+  // Groups
+  document.getElementById('groups-list').innerHTML = room.groups.map((g, i) => {
+    const cls = STATUS_CLS[g.status] || 'sb-wait';
+    const lbl = getLabel(room, g.status);
+    const blink = STATUS_DOT_BLINK[g.status] ? ' blink' : '';
+    const badge = `<span class="status-badge ${cls}"><span class="dot${blink}"></span>${lbl}</span>`;
+
+    let actions = '';
+    if (isAdmin) {
+      if (g.status === 'active') {
+        actions = `<button class="btn btn-sm btn-success" onclick="markDone('${room.id}',${i})">✓ ${getLabel(room,'done')}にする</button>`;
+      } else if (g.status === 'done') {
+        actions = `<button class="btn btn-sm btn-undo" onclick="undoDone('${room.id}',${i})" title="済みを取り消す">↩ 取り消し</button>`;
+      } else {
+        actions = `<button class="btn btn-sm" onclick="setActive('${room.id}',${i})">→ ${getLabel(room,'active')}へ</button>`;
+      }
+    }
+    const highlight = changedIdxs.has(i) ? ' just-changed' : '';
+    return `<div class="group-row status-${g.status}${highlight}">
+      <span class="seq-num">${i+1}</span>
+      <span class="group-name">${esc(g.name)}</span>
+      <span>${badge}</span>
+      <div class="row-actions">${actions}</div>
+    </div>`;
+  }).join('');
+}
+
+// ──────────────────────────────────────────
+//  CREATE ROOM
+// ──────────────────────────────────────────
+function openCreateRoom() {
+  // 時セレクトを初期化（0〜23時）
+  const hourSel = document.getElementById('f-hour');
+  if (!hourSel.options.length) {
+    for (let h = 0; h < 24; h++) {
+      const o = document.createElement('option');
+      o.value = String(h).padStart(2,'0');
+      o.textContent = String(h).padStart(2,'0');
+      hourSel.appendChild(o);
+    }
+  }
+  // 現在時刻を5分単位に切り上げてデフォルト値にセット
+  const now = new Date();
+  const rem = now.getMinutes() % 5;
+  if (rem !== 0) now.setMinutes(now.getMinutes() + (5 - rem));
+  const pad = n => String(n).padStart(2,'0');
+  document.getElementById('f-date').value   = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  document.getElementById('f-hour').value   = pad(now.getHours());
+  document.getElementById('f-minute').value = pad(Math.floor(now.getMinutes()/5)*5);
+  openModal('modal-create');
+}
+
+async function createRoom() {
+  const name   = document.getElementById('f-name').value.trim();
+  const fDate = document.getElementById('f-date').value;
+  const fHour = document.getElementById('f-hour').value;
+  const fMin  = document.getElementById('f-minute').value;
+  const dt = fDate ? `${fDate}T${fHour}:${fMin}` : '';
+  const place  = document.getElementById('f-place').value.trim();
+  const raw    = document.getElementById('f-groups').value.trim();
+  const pc     = parseInt(document.getElementById('f-prepare').value) || 2;
+  const pw     = document.getElementById('f-password').value;
+
+  const affiliation = document.getElementById('f-affiliation').value.trim();
+  const creator = document.getElementById('f-creator').value.trim();
+  if (!name)    { showToast('会議名を入力してください'); return; }
+  if (!dt)      { showToast('日時を入力してください'); return; }
+  if (!creator) { showToast('作成者を入力してください'); return; }
+  if (!raw)     { showToast('グループを入力してください'); return; }
+  if (!pw) {
+    // confirm()はモーダル内でブロックされるため専用モーダルで確認
+    _pendingRoomData = { name, dt, place, affiliation, creator, pc, raw };
+    closeModal('modal-create');
+    openModal('modal-nopass-confirm');
+    return;
+  }
+  await _doCreateRoom({ name, dt, place, affiliation, creator, pc, pw, raw });
+}
+
+let _pendingRoomData = null;
+
+async function confirmNoPass() {
+  closeModal('modal-nopass-confirm');
+  if (!_pendingRoomData) return;
+  const { name, dt, place, affiliation, creator, pc, raw } = _pendingRoomData;
+  _pendingRoomData = null;
+  await _doCreateRoom({ name, dt, place, affiliation, creator, pc, pw: '', raw });
+}
+
+function cancelNoPass() {
+  closeModal('modal-nopass-confirm');
+  _pendingRoomData = null;
+  openModal('modal-create');
+}
+
+async function _doCreateRoom({ name, dt, place, affiliation, creator, pc, pw, raw }) {
+  const statusNames = {
+    done:   document.getElementById('sname-done').value   || '終了',
+    active: document.getElementById('sname-active').value || '審議中',
+    ready:  document.getElementById('sname-ready').value  || '準備中',
+    wait:   document.getElementById('sname-wait').value   || '待機',
+  };
+
+  const groups = raw.split('\n').map(l=>l.trim()).filter(Boolean).map(n=>({name:n,status:'wait'}));
+  const id = genId();
+  const room = { id, name, datetime:dt, place, affiliation, creator, prepareCount:pc, password:pw, statusNames, groups };
+  recomputeStatuses(room);
+
+  await saveRoom(room);
+  closeModal('modal-create');
+  clearCreateForm();
+  showToast('ルームを作成しました！');
+  renderRooms();
+}
+
+function clearCreateForm() {
+  ['f-name','f-place','f-affiliation','f-creator','f-groups','f-password','f-date'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('f-hour').value   = '09';
+  document.getElementById('f-minute').value = '00';
+  document.getElementById('f-prepare').value = 2;
+  document.getElementById('sname-done').value   = '済み';
+  document.getElementById('sname-active').value = '対応中';
+  document.getElementById('sname-ready').value  = '準備中';
+  document.getElementById('sname-wait').value   = '待機中';
+}
+
+// ──────────────────────────────────────────
+//  ADMIN AUTH
+// ──────────────────────────────────────────
+function openAdminLogin() {
+  document.getElementById('f-admin-pw').value = '';
+  document.getElementById('admin-login-error').style.display = 'none';
+  openModal('modal-admin-login');
+}
+
+async function adminLogin() {
+  const room = await getRoom(currentRoomId);
+  if (!room) return;
+  const pw = document.getElementById('f-admin-pw').value;
+  if (!room.password || pw === room.password) {
+    isAdmin = true;
+    closeModal('modal-admin-login');
+    renderRoom(room);
+    showToast('管理者としてログインしました');
+  } else {
+    document.getElementById('admin-login-error').style.display = 'block';
+  }
+}
+
+function adminLogout() {
+  isAdmin = false;
+  getRoom(currentRoomId).then(r=>r && renderRoom(r));
+  showToast('ログアウトしました');
+}
+
+async function getRoom(id) {
+  if (firebaseReady) {
+    const snap = await fbRoomsRef.child(id).once('value');
+    return snap.val();
+  }
+  return localDb[id] || null;
+}
+
+// ──────────────────────────────────────────
+//  DELETE ROOM
+// ──────────────────────────────────────────
+function openDeleteRoom() {
+  if (!isAdmin) return;
+  openModal('modal-delete-room');
+}
+
+async function deleteRoom() {
+  if (!isAdmin) return;
+  const roomId = currentRoomId;
+  const room = await getRoom(roomId);
+  if (!room) return;
+
+  if (firebaseReady) {
+    await fbRoomsRef.child(roomId).remove();
+  } else {
+    delete localDb[roomId];
+    try { localStorage.setItem('mb_db', JSON.stringify(localDb)); } catch(e){}
+  }
+
+  closeModal('modal-delete-room');
+  showToast(`「${room.name}」を破棄しました`);
+  showView('rooms');
+}
+
+// ──────────────────────────────────────────
+//  GROUP EDIT
+// ──────────────────────────────────────────
+let editGroupsData = []; // 編集中の一時データ
+let dragSrcIdx = null;
+
+async function openEditGroups() {
+  const room = await getRoom(currentRoomId);
+  if (!room || !isAdmin) return;
+  // ディープコピー
+  editGroupsData = room.groups.map(g => ({...g}));
+  renderEditGroupList(room);
+  document.getElementById('new-group-name').value = '';
+  openModal('modal-edit-groups');
+}
+
+function renderEditGroupList(room) {
+  const list = document.getElementById('edit-group-list');
+  list.innerHTML = editGroupsData.map((g, i) => {
+    const cls  = STATUS_CLS[g.status] || 'sb-wait';
+    const lbl  = room ? getLabel(room, g.status) : defaultLabel(g.status);
+    return `<div class="edit-group-row" draggable="true"
+        data-idx="${i}"
+        ondragstart="onDragStart(event,${i})"
+        ondragover="onDragOver(event,${i})"
+        ondragleave="onDragLeave(event)"
+        ondrop="onDrop(event,${i})"
+        ondragend="onDragEnd()">
+      <span class="drag-handle" title="ドラッグして並び替え">☰</span>
+      <input type="text" value="${esc(g.name)}" oninput="editGroupsData[${i}].name=this.value" placeholder="課名">
+      <span class="edit-status-badge ${cls}">${lbl}</span>
+      <button class="btn-icon" title="削除" onclick="removeGroupInEdit(${i})">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function addGroupInEdit() {
+  const inp = document.getElementById('new-group-name');
+  const name = inp.value.trim();
+  if (!name) return;
+  editGroupsData.push({ name, status: 'wait' });
+  inp.value = '';
+  // room取得してラベル再描画
+  getRoom(currentRoomId).then(room => renderEditGroupList(room));
+}
+
+function removeGroupInEdit(idx) {
+  editGroupsData.splice(idx, 1);
+  getRoom(currentRoomId).then(room => renderEditGroupList(room));
+}
+
+async function saveEditGroups() {
+  if (!editGroupsData.length) { showToast('グループが0件です'); return; }
+  const room = await getRoom(currentRoomId);
+  if (!room) return;
+  // 名前が空のものを除外
+  room.groups = editGroupsData.filter(g => g.name.trim()).map(g => ({...g, name: g.name.trim()}));
+  recomputeStatuses(room);
+  await saveRoom(room);
+  if (!firebaseReady) renderRoom(room);
+  closeModal('modal-edit-groups');
+  showToast('グループを更新しました');
+}
+
+// ─── Drag & Drop ───
+function onDragStart(e, idx) {
+  dragSrcIdx = idx;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+function onDragOver(e, idx) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.edit-group-row').forEach(r => r.classList.remove('drag-over'));
+  e.currentTarget.classList.add('drag-over');
+}
+function onDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+function onDrop(e, idx) {
+  e.preventDefault();
+  if (dragSrcIdx === null || dragSrcIdx === idx) return;
+  const moved = editGroupsData.splice(dragSrcIdx, 1)[0];
+  editGroupsData.splice(idx, 0, moved);
+  getRoom(currentRoomId).then(room => renderEditGroupList(room));
+}
+function onDragEnd() {
+  document.querySelectorAll('.edit-group-row').forEach(r => {
+    r.classList.remove('dragging', 'drag-over');
+  });
+  dragSrcIdx = null;
+}
+
+// ──────────────────────────────────────────
+//  STATUS 操作
+// ──────────────────────────────────────────
+async function markDone(roomId, idx) {
+  const room = await getRoom(roomId);
+  if (!room || !isAdmin) return;
+  room.groups[idx].status = 'done';
+  recomputeStatuses(room);
+  await saveRoom(room);
+  if (!firebaseReady) renderRoom(room);
+  showToast(`${room.groups[idx].name} を ${getLabel(room,'done')} にしました`);
+}
+
+async function undoDone(roomId, idx) {
+  const room = await getRoom(roomId);
+  if (!room || !isAdmin) return;
+  room.groups[idx].status = 'wait';
+  recomputeStatuses(room);
+  await saveRoom(room);
+  if (!firebaseReady) renderRoom(room);
+  showToast(`${room.groups[idx].name} の${getLabel(room,'done')}を取り消しました`);
+}
+
+async function setActive(roomId, idx) {
+  const room = await getRoom(roomId);
+  if (!room || !isAdmin) return;
+  // 現在の active → done に
+  room.groups.forEach((g,i)=>{ if(i!==idx && g.status==='active') g.status='done'; });
+  room.groups[idx].status = 'active';
+  recomputeStatuses(room);
+  await saveRoom(room);
+  if (!firebaseReady) renderRoom(room);
+  showToast(`${room.groups[idx].name} を ${getLabel(room,'active')} にしました`);
+}
+
+// ──────────────────────────────────────────
+//  MODAL helpers
+// ──────────────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+document.querySelectorAll('.modal-overlay').forEach(el=>{
+  el.addEventListener('click', e=>{ if(e.target===el) el.classList.remove('show'); });
+});
+
+// ──────────────────────────────────────────
+//  TOAST
+// ──────────────────────────────────────────
+let toastTimer;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>t.classList.remove('show'), 2800);
+}
+
+// ──────────────────────────────────────────
+//  AUTO DELETE（1週間経過で自動削除）
+// ──────────────────────────────────────────
+async function autoDeleteExpiredRooms() {
+  const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+
+  if (firebaseReady) {
+    const snap = await fbRoomsRef.once('value');
+    const data = snap.val() || {};
+    const expired = Object.values(data).filter(r => {
+      if (!r.datetime) return false;
+      return now - new Date(r.datetime).getTime() > ONE_WEEK_MS;
+    });
+    await Promise.all(expired.map(r => fbRoomsRef.child(r.id).remove()));
+    if (expired.length) console.log(`自動削除: ${expired.length}件`);
+  } else {
+    let deleted = 0;
+    Object.values(localDb).forEach(r => {
+      if (!r.datetime) return;
+      if (now - new Date(r.datetime).getTime() > ONE_WEEK_MS) {
+        delete localDb[r.id];
+        deleted++;
+      }
+    });
+    if (deleted) {
+      try { localStorage.setItem('mb_db', JSON.stringify(localDb)); } catch(e){}
+      console.log(`自動削除: ${deleted}件`);
+    }
+  }
+}
+
+// ──────────────────────────────────────────
+//  SOUND
+// ──────────────────────────────────────────
+let soundEnabled = localStorage.getItem('mb_sound') !== 'off'; // デフォルトON
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  localStorage.setItem('mb_sound', soundEnabled ? 'on' : 'off');
+  updateSoundBtn();
+}
+
+function updateSoundBtn() {
+  const btn = document.getElementById('btn-sound-toggle');
+  if (!btn) return;
+  btn.textContent = soundEnabled ? '🔔 音ON' : '🔇 音OFF';
+  btn.style.color     = soundEnabled ? '' : 'var(--text3)';
+  btn.style.borderColor = soundEnabled ? '' : 'var(--text3)';
+}
+
+function playBeep() {
+  if (!soundEnabled) return;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // 2音（ポーン）
+    [0, 0.18].forEach((delay, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.value = i === 0 ? 880 : 1100;
+      gain.gain.setValueAtTime(0, ctx.currentTime + delay);
+      gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + delay + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + 0.4);
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + 0.4);
+    });
+  } catch(e) { /* 音が使えない環境では無視 */ }
+}
+
+// ──────────────────────────────────────────
+//  UTIL
+// ──────────────────────────────────────────
+function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ──────────────────────────────────────────
+//  INIT
+// ──────────────────────────────────────────
+loadLocalDb();
+autoDeleteExpiredRooms();
+showView('rooms');
+updateSoundBtn();
+</script>
+</body>
+</html>

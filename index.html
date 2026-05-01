@@ -274,6 +274,18 @@ input[type="number"]{width:80px;}
 .drag-handle:active{cursor:grabbing;}
 .edit-group-row.drag-over{border-color:var(--accent);background:rgba(79,142,247,.08);}
 .edit-group-row.dragging{opacity:.4;}
+.move-btns{display:flex;flex-direction:column;gap:2px;}
+.btn-move{background:transparent;border:1px solid var(--border2);color:var(--text2);
+  width:26px;height:22px;border-radius:4px;cursor:pointer;font-size:11px;
+  display:flex;align-items:center;justify-content:center;
+  touch-action:manipulation;transition:all .15s;padding:0;}
+.btn-move:hover{background:var(--accent);border-color:var(--accent);color:#fff;}
+.btn-move:disabled{opacity:.2;cursor:default;}
+/* スマホではドラッグハンドルを非表示にして矢印だけ */
+@media(max-width:640px){
+  .drag-handle{display:none;}
+  .edit-group-row{grid-template-columns:32px 1fr auto auto;}
+}
 .edit-group-row input{background:transparent;border:none;border-bottom:1px solid transparent;padding:2px 0;font-size:13px;color:var(--text);width:100%;}
 .edit-group-row input:focus{border-bottom-color:var(--accent);outline:none;}
 .edit-status-badge{font-size:10px;padding:2px 6px;border-radius:3px;border:1px solid;white-space:nowrap;flex-shrink:0;}
@@ -1066,6 +1078,8 @@ function renderEditGroupList(room) {
   list.innerHTML = editGroupsData.map((g, i) => {
     const cls  = STATUS_CLS[g.status] || 'sb-wait';
     const lbl  = room ? getLabel(room, g.status) : defaultLabel(g.status);
+    const isFirst = i === 0;
+    const isLast  = i === editGroupsData.length - 1;
     return `<div class="edit-group-row" draggable="true"
         data-idx="${i}"
         ondragstart="onDragStart(event,${i})"
@@ -1073,7 +1087,10 @@ function renderEditGroupList(room) {
         ondragleave="onDragLeave(event)"
         ondrop="onDrop(event,${i})"
         ondragend="onDragEnd()">
-      <span class="drag-handle" title="ドラッグして並び替え">☰</span>
+      <div class="move-btns">
+        <button class="btn-move" onclick="moveGroupInEdit(${i},-1)" ${isFirst?'disabled':''} title="上へ">▲</button>
+        <button class="btn-move" onclick="moveGroupInEdit(${i},+1)" ${isLast?'disabled':''} title="下へ">▼</button>
+      </div>
       <input type="text" value="${esc(g.name)}" oninput="editGroupsData[${i}].name=this.value" placeholder="課名">
       <span class="edit-status-badge ${cls}">${lbl}</span>
       <button class="btn-icon" title="削除" onclick="removeGroupInEdit(${i})">✕</button>
@@ -1088,6 +1105,13 @@ function addGroupInEdit() {
   editGroupsData.push({ name, status: 'wait' });
   inp.value = '';
   // room取得してラベル再描画
+  getRoom(currentRoomId).then(room => renderEditGroupList(room));
+}
+
+function moveGroupInEdit(idx, dir) {
+  const target = idx + dir;
+  if (target < 0 || target >= editGroupsData.length) return;
+  [editGroupsData[idx], editGroupsData[target]] = [editGroupsData[target], editGroupsData[idx]];
   getRoom(currentRoomId).then(room => renderEditGroupList(room));
 }
 

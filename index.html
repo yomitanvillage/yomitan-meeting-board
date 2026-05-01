@@ -66,7 +66,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans JP',sans-seri
 header{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 24px;height:56px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:100;}
 .logo{font-family:'DM Mono',monospace;font-size:15px;font-weight:500;color:var(--accent);letter-spacing:-0.5px;}
 .logo span{color:var(--text2);}
-header nav{margin-left:auto;display:flex;gap:8px;align-items:center;}
+header nav{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
 
 /* ─── BUTTONS ─── */
 .btn{border:1px solid var(--border2);background:transparent;color:var(--text);padding:6px 14px;border-radius:6px;font-family:inherit;font-size:13px;cursor:pointer;transition:all .15s;}
@@ -126,6 +126,76 @@ main{padding:24px;max-width:1100px;margin:0 auto;}
 .group-row.status-done{opacity:.55;}
 .seq-num{font-family:'DM Mono',monospace;font-size:13px;color:var(--text3);}
 .group-name{font-size:14px;}
+
+/* ─── モバイル対応 ─── */
+@media (max-width: 640px) {
+  /* ヘッダー：2段レイアウト */
+  header {
+    height: auto;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    gap: 8px;
+  }
+  .logo { font-size: 14px; }
+  header nav {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  header nav .btn, header nav .realtime-badge {
+    font-size: 12px;
+    padding: 6px 8px;
+    justify-content: center;
+    text-align: center;
+    width: 100%;
+  }
+  header nav .realtime-badge {
+    grid-column: 1 / -1;
+    justify-content: center;
+  }
+  #btn-back {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+  #btn-edit-groups, #btn-delete-room, #btn-admin-logout, #btn-admin-login {
+    font-size: 12px;
+  }
+
+  /* メイン余白を縮小 */
+  main { padding: 12px; }
+
+  /* 部屋詳細ヘッダー */
+  .room-detail-header { flex-direction: column; gap: 10px; padding: 14px; }
+  .admin-area { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; align-items: center; }
+
+  /* グループテーブル：列グリッドをやめてカード型に */
+  .groups-table-header { display: none; }
+  .group-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 12px 14px;
+    gap: 8px;
+    position: relative;
+  }
+  .group-row .seq-num {
+    position: absolute;
+    top: 12px; right: 14px;
+    font-size: 11px;
+  }
+  .group-name { font-size: 15px; font-weight: 500; padding-right: 28px; }
+  .row-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+  .progress-cell { width: 100%; }
+  .rate-slider-wrap input[type=range] { width: 100%; flex: 1; }
+
+  /* 部屋カード */
+  .rooms-grid { grid-template-columns: 1fr; }
+}
 .status-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:6px;font-size:12px;font-weight:500;border:1px solid;}
 .sb-done  {background:var(--done-bg);  color:var(--done-tx);  border-color:var(--done-bd);}
 .sb-active{background:var(--active-bg);color:var(--active-tx);border-color:var(--active-bd);}

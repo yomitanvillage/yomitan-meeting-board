@@ -118,8 +118,8 @@ main{padding:24px;max-width:1100px;margin:0 auto;}
 
 /* ─── GROUPS TABLE ─── */
 .groups-table{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
-.groups-table-header{display:grid;grid-template-columns:44px 1fr 140px 1fr;padding:10px 20px;background:var(--bg3);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:500;}
-.group-row{display:grid;grid-template-columns:44px 1fr 140px 1fr;padding:14px 20px;border-bottom:1px solid var(--border);align-items:center;transition:background .15s;}
+.groups-table-header{display:grid;grid-template-columns:44px 1fr 140px 200px 1fr;padding:10px 20px;background:var(--bg3);border-bottom:1px solid var(--border);font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.8px;font-weight:500;}
+.group-row{display:grid;grid-template-columns:44px 1fr 140px 200px 1fr;padding:14px 20px;border-bottom:1px solid var(--border);align-items:center;transition:background .15s;}
 .group-row:last-child{border-bottom:none;}
 .group-row:hover{background:rgba(255,255,255,.02);}
 .group-row.status-active{background:rgba(79,142,247,.06);}
@@ -134,7 +134,39 @@ main{padding:24px;max-width:1100px;margin:0 auto;}
 .dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0;}
 .dot.blink{animation:blink 1.2s ease-in-out infinite;}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
-.row-actions{display:flex;gap:6px;justify-content:flex-end;}
+.row-actions{display:flex;gap:6px;justify-content:flex-end;align-items:center;}
+
+/* ─── 進捗率表示 ─── */
+.progress-cell{display:flex;flex-direction:column;gap:6px;}
+.progress-rate-badge{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:13px;font-weight:600;color:var(--active-tx);
+  background:var(--active-bg);border:1px solid var(--active-bd);
+  padding:3px 10px;border-radius:6px;
+}
+.progress-rate-badge .rate-num{font-family:'DM Mono',monospace;font-size:15px;}
+.progress-mini-bar{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;width:100%;}
+.progress-mini-fill{height:100%;border-radius:2px;background:linear-gradient(90deg,var(--active-bd),var(--accent2));transition:width .3s ease;}
+
+/* スライダーUI */
+.rate-slider-wrap{display:flex;align-items:center;gap:8px;margin-top:2px;}
+.rate-slider-wrap input[type=range]{
+  -webkit-appearance:none;appearance:none;
+  width:120px;height:4px;border-radius:2px;
+  background:var(--border2);outline:none;cursor:pointer;border:none;padding:0;
+}
+.rate-slider-wrap input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;
+  width:16px;height:16px;border-radius:50%;
+  background:var(--accent);cursor:pointer;border:2px solid var(--bg2);
+  box-shadow:0 0 0 2px var(--accent);
+}
+.rate-slider-wrap input[type=range]::-moz-range-thumb{
+  width:16px;height:16px;border-radius:50%;
+  background:var(--accent);cursor:pointer;border:2px solid var(--bg2);
+}
+.rate-label{font-family:'DM Mono',monospace;font-size:13px;color:var(--accent);font-weight:600;min-width:36px;}
+.btn-rate-toggle{font-size:11px;padding:3px 8px;}
 
 /* ─── 対応中になった行のハイライト（ゆっくり点滅） ─── */
 @keyframes active-highlight {
@@ -245,7 +277,7 @@ input[type="number"]{width:80px;}
     </div>
     <div class="groups-table">
       <div class="groups-table-header">
-        <span>#</span><span>課・担当</span><span>ステータス</span><span></span>
+        <span>#</span><span>課・担当</span><span>ステータス</span><span>進捗率</span><span></span>
       </div>
       <div id="groups-list"></div>
     </div>
@@ -712,10 +744,36 @@ function renderRoom(room) {
       }
     }
     const highlight = changedIdxs.has(i) ? ' just-changed' : '';
+
+    // 進捗率セル（対応中のみ表示）
+    let rateCell = '<span></span>';
+    if (g.status === 'active') {
+      const rate = g.progressRate ?? null;
+      if (rate !== null) {
+        // 閲覧者・管理者共通：バッジ＋ミニバー表示
+        const sliderHtml = isAdmin
+          ? `<div class="rate-slider-wrap">
+               <input type="range" min="0" max="100" step="10" value="${rate}"
+                 oninput="updateRate('${room.id}',${i},this.value)"
+                 onchange="saveRate('${room.id}',${i},this.value)">
+               <span class="rate-label">${rate}%</span>
+             </div>` : '';
+        rateCell = `<div class="progress-cell">
+          <div class="progress-rate-badge"><span class="rate-num">${rate}%</span> 完了</div>
+          <div class="progress-mini-bar"><div class="progress-mini-fill" style="width:${rate}%"></div></div>
+          ${sliderHtml}
+        </div>`;
+      } else if (isAdmin) {
+        // 管理者：非表示中→表示ボタン
+        rateCell = `<button class="btn btn-sm btn-rate-toggle" onclick="showRate('${room.id}',${i})">📊 進捗率を表示</button>`;
+      }
+    }
+
     return `<div class="group-row status-${g.status}${highlight}">
       <span class="seq-num">${i+1}</span>
       <span class="group-name">${esc(g.name)}</span>
       <span>${badge}</span>
+      ${rateCell}
       <div class="row-actions">${actions}</div>
     </div>`;
   }).join('');
@@ -884,6 +942,40 @@ async function deleteRoom() {
 }
 
 // ──────────────────────────────────────────
+//  PROGRESS RATE
+// ──────────────────────────────────────────
+
+// 進捗率を表示開始（0%にセット）
+async function showRate(roomId, idx) {
+  const room = await getRoom(roomId);
+  if (!room || !isAdmin) return;
+  room.groups[idx].progressRate = 0;
+  await saveRoom(room);
+  if (!firebaseReady) renderRoom(room);
+}
+
+// スライダー操作中：ラベルのみリアルタイム更新（DOM直接操作でFirebase節約）
+function updateRate(roomId, idx, val) {
+  const row = document.querySelectorAll('.group-row')[idx];
+  if (!row) return;
+  const label = row.querySelector('.rate-label');
+  const fill  = row.querySelector('.progress-mini-fill');
+  const badge = row.querySelector('.rate-num');
+  if (label) label.textContent = val + '%';
+  if (fill)  fill.style.width  = val + '%';
+  if (badge) badge.textContent = val;
+}
+
+// スライダー確定時：Firebaseに保存
+async function saveRate(roomId, idx, val) {
+  const room = await getRoom(roomId);
+  if (!room || !isAdmin) return;
+  room.groups[idx].progressRate = parseInt(val);
+  await saveRoom(room);
+  if (!firebaseReady) renderRoom(room);
+}
+
+// ──────────────────────────────────────────
 //  GROUP EDIT
 // ──────────────────────────────────────────
 let editGroupsData = []; // 編集中の一時データ
@@ -983,6 +1075,7 @@ async function markDone(roomId, idx) {
   const room = await getRoom(roomId);
   if (!room || !isAdmin) return;
   room.groups[idx].status = 'done';
+  room.groups[idx].progressRate = null; // 済みにしたら進捗率リセット
   recomputeStatuses(room);
   await saveRoom(room);
   if (!firebaseReady) renderRoom(room);
@@ -993,6 +1086,7 @@ async function undoDone(roomId, idx) {
   const room = await getRoom(roomId);
   if (!room || !isAdmin) return;
   room.groups[idx].status = 'wait';
+  room.groups[idx].progressRate = null; // 取り消し時もリセット
   recomputeStatuses(room);
   await saveRoom(room);
   if (!firebaseReady) renderRoom(room);

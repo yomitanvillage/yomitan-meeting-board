@@ -15,13 +15,11 @@
   gtag('config', 'G-901FSDMQPX');
 </script>
 
-<!-- Firebase SDK (CDN) -->
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-<script>
-// SDKロード確認フラグ
-window._firebaseSDKReady = (typeof firebase !== 'undefined');
-</script>
+<!-- Firebase SDK (CDN) - v10 compat -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"
+  onerror="window._fbLoadError=true"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"
+  onerror="window._fbLoadError=true"></script>
 
 <style>
 /* ── ダークモード（デフォルト） ── */
@@ -342,10 +340,7 @@ input[type="number"]{width:80px;}
     </div>
     <div class="rooms-grid" id="rooms-grid">
       <div class="empty-state">
-        <p id="loading-msg">接続中…</p>
-        <p id="loading-sub" style="font-size:12px;color:var(--text3);margin-top:8px;display:none">
-          時間がかかっています。ページを再読み込みしてみてください。
-        </p>
+        <p id="loading-msg">読み込み中…</p>
       </div>
     </div>
   </div>
@@ -545,55 +540,42 @@ const FIREBASE_CONFIG = {
 let firebaseReady = false;
 let fbRoomsRef = null;
 
-let _firebaseRetryCount = 0;
 function initFirebase() {
-  if (!FIREBASE_CONFIG) { initNoFirebase(); return; }
-  // SDKがまだ読み込まれていなければリトライ（最大20回=6秒）
-  if (typeof firebase === 'undefined') {
-    _firebaseRetryCount++;
-    if (_firebaseRetryCount > 20) {
-      console.error('Firebase SDK load timeout, falling back to demo mode');
-      initNoFirebase();
-      return;
-    }
-    console.warn(`Firebase SDK not ready, retrying... (${_firebaseRetryCount})`);
-    setTimeout(initFirebase, 300);
+  if (!FIREBASE_CONFIG || window._fbLoadError || typeof firebase === 'undefined') {
+    console.warn('Firebase SDK unavailable, starting without Firebase');
+    initNoFirebase();
     return;
   }
   try {
-    const app = firebase.apps.length
-      ? firebase.app()
-      : firebase.initializeApp(FIREBASE_CONFIG);
-    fbRoomsRef = firebase.database(app).ref('rooms');
+    if (!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    fbRoomsRef = firebase.database().ref('rooms');
     firebaseReady = true;
+
+    // 接続状態バッジ
+    const fbBadge = document.getElementById('firebase-status');
+    firebase.database().ref('.info/connected').on('value', snap => {
+      if (snap.val()) {
+        fbBadge.innerHTML = '<span class="dot blink"></span>Firebase 同期中';
+        fbBadge.style.cssText = '';
+      } else {
+        fbBadge.innerHTML = '<span class="dot"></span>オフライン';
+        fbBadge.style.color = 'var(--ready-tx)';
+      }
+    });
   } catch(e) {
     console.error('Firebase init error:', e);
     initNoFirebase();
     return;
   }
-
-  // 接続状態バッジ
-  const fbBadge = document.getElementById('firebase-status');
-  firebase.database().ref('.info/connected').on('value', snap => {
-    if (snap.val()) {
-      fbBadge.innerHTML = '<span class="dot blink"></span>Firebase 同期中';
-      fbBadge.style.cssText = '';
-    } else {
-      fbBadge.innerHTML = '<span class="dot"></span>オフライン';
-      fbBadge.style.color = 'var(--ready-tx)';
-    }
-  });
-
   startApp();
 }
 
 function initNoFirebase() {
   const fbBadge = document.getElementById('firebase-status');
-  fbBadge.innerHTML = '<span class="dot"></span>デモモード';
+  fbBadge.innerHTML = '<span class="dot"></span>オフライン';
   fbBadge.style.background = 'var(--ready-bg)';
   fbBadge.style.borderColor = 'var(--ready-bd)';
   fbBadge.style.color = 'var(--ready-tx)';
-  document.getElementById('setup-banner').style.display = 'block';
   startApp();
 }
 
@@ -1357,43 +1339,18 @@ function startApp() {
   updateSoundBtn();
 }
 
-// 8秒後も「接続中」のままなら案内メッセージを表示
-setTimeout(() => {
-  const sub = document.getElementById('loading-sub');
-  const msg = document.getElementById('loading-msg');
-  if (sub && msg && msg.textContent === '接続中…') {
-    sub.style.display = 'block';
-  }
-}, 8000);
+
 
 // ページ全体（外部スクリプト含む）の読み込み完了後に起動
-let _appStarted = false;
-
-function safeStartApp() {
-  if (_appStarted) return;
-  _appStarted = true;
+// ページ・外部スクリプトが全て読み込まれてから起動
+window.addEventListener('load', () => {
+  applyTheme();
   if (FIREBASE_CONFIG) {
     initFirebase();
   } else {
     initNoFirebase();
   }
-}
-
-// loadイベント
-window.addEventListener('load', () => {
-  applyTheme();
-  safeStartApp();
 });
-
-// loadが発火しない場合の保険（DOMContentLoaded）
-document.addEventListener('DOMContentLoaded', () => {
-  applyTheme();
-  // 2秒待ってもloadが来なければ強制起動
-  setTimeout(safeStartApp, 2000);
-});
-
-// さらに保険：5秒たっても起動していなければ強制起動
-setTimeout(safeStartApp, 5000);
 </script>
 </body>
 </html>

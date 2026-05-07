@@ -645,7 +645,8 @@ function genId() { return Date.now().toString(36) + Math.random().toString(36).s
 
 async function saveRoom(room) {
   if (firebaseReady) {
-    await fbRoomsRef.child(room.id).set(room);
+    await putRoomREST(room);
+    localDb[room.id] = room; // ローカルキャッシュも更新
   } else {
     localDb[room.id] = room;
     try { localStorage.setItem('mb_db', JSON.stringify(localDb)); } catch(e){}
@@ -654,6 +655,39 @@ async function saveRoom(room) {
 
 function loadLocalDb() {
   try { localDb = JSON.parse(localStorage.getItem('mb_db') || '{}'); } catch(e){ localDb={}; }
+}
+
+// ── Firebase REST API ヘルパー（WebSocket不要）──
+function fbRestUrl(path = '') {
+  const base = FIREBASE_CONFIG.databaseURL.replace(/\/$/, '');
+  return `${base}/${path}.json`;
+}
+
+async function fetchRoomsREST() {
+  const res = await fetch(fbRestUrl('rooms'), { cache: 'no-store' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const data = await res.json();
+  return data ? Object.values(data) : [];
+}
+
+async function fetchRoomREST(id) {
+  const res = await fetch(fbRestUrl('rooms/' + id), { cache: 'no-store' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  return await res.json();
+}
+
+async function putRoomREST(room) {
+  const res = await fetch(fbRestUrl('rooms/' + room.id), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(room),
+  });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+}
+
+async function deleteRoomREST(id) {
+  const res = await fetch(fbRestUrl('rooms/' + id), { method: 'DELETE' });
+  if (!res.ok) throw new Error('HTTP ' + res.status);
 }
 
 // ──────────────────────────────────────────
@@ -682,30 +716,13 @@ function renderRooms() {
     _renderRoomsHTML(rooms || []);
     return;
   }
-  // Firebase: 一覧はonce取得（タイムアウト付き）
-  let roomsFetched = false;
-  const roomsTimer = setTimeout(() => {
-    if (!roomsFetched) {
-      dbg('⚠️ Firebaseデータ取得タイムアウト、再試行します');
-      fbRoomsRef.once('value').then(snap => {
-        roomsFetched = true;
-        _renderRoomsHTML(Object.values(snap.val() || {}));
-      }).catch(e => {
-        dbg('❌ 再試行失敗: ' + e.message);
-        _renderRoomsHTML([]);
-      });
-    }
-  }, 5000);
-
-  fbRoomsRef.once('value').then(snap => {
-    clearTimeout(roomsTimer);
-    if (roomsFetched) return;
-    roomsFetched = true;
-    dbg('✅ ルーム一覧取得成功');
-    _renderRoomsHTML(Object.values(snap.val() || {}));
+  // Firebase: REST APIで取得（WebSocket不要・ネットワーク制限に強い）
+  dbg('ルーム一覧をREST APIで取得中...');
+  fetchRoomsREST().then(rooms => {
+    dbg('✅ ルーム一覧取得成功: ' + rooms.length + '件');
+    _renderRoomsHTML(rooms);
   }).catch(e => {
-    clearTimeout(roomsTimer);
-    dbg('❌ ルーム取得エラー: ' + e.message);
+    dbg('❌ 取得失敗: ' + e.message);
     _renderRoomsHTML([]);
   });
 }
@@ -754,22 +771,26 @@ async function openRoom(id) {
   scheduleRoomClock(id);
 
   if (firebaseReady) {
-    const ref = fbRoomsRef.child(id);
-    const handler = snap => {
-      const room = snap.val();
-      if (room) {
-        // 開始前→開始後の切り替えをFirebaseにも反映
-        const wasStarted = isRoomStarted(room);
-        recomputeStatuses(room);
-        const nowStarted = isRoomStarted(room);
-        // 開始直後（ステータスが変わった可能性があるとき）は保存
-        if (nowStarted && !wasStarted) saveRoom(room);
-        renderRoom(room);
-      }
+    // REST APIポーリング（3秒間隔）でリアルタイムに近い更新を実現
+    dbg('ルーム詳細ポーリング開始: ' + id);
+    let polling = true;
+    const poll = async () => {
+      if (!polling || currentRoomId !== id) return;
+      try {
+        const room = await fetchRoomREST(id);
+        if (room && currentRoomId === id) {
+          localDb[id] = room;
+          const wasStarted = isRoomStarted(room);
+          recomputeStatuses(room);
+          if (isRoomStarted(room) && !wasStarted) saveRoom(room);
+          renderRoom(room);
+        }
+      } catch(e) { /* 一時的なエラーは無視 */ }
+      if (polling && currentRoomId === id) setTimeout(poll, 3000);
     };
-    ref.on('value', handler);
+    poll(); // 初回即実行
     unsubscribeRoom = () => {
-      ref.off('value', handler);
+      polling = false;
       if (roomClockTimer) { clearTimeout(roomClockTimer); roomClockTimer = null; }
     };
   } else {
@@ -1029,8 +1050,11 @@ function adminLogout() {
 
 async function getRoom(id) {
   if (firebaseReady) {
-    const snap = await fbRoomsRef.child(id).once('value');
-    return snap.val();
+    // まずキャッシュを返し、バックグラウンドで最新を取得
+    if (localDb[id]) return localDb[id];
+    const room = await fetchRoomREST(id);
+    if (room) localDb[id] = room;
+    return room;
   }
   return localDb[id] || null;
 }
@@ -1050,7 +1074,8 @@ async function deleteRoom() {
   if (!room) return;
 
   if (firebaseReady) {
-    await fbRoomsRef.child(roomId).remove();
+    await deleteRoomREST(roomId);
+    delete localDb[roomId];
   } else {
     delete localDb[roomId];
     try { localStorage.setItem('mb_db', JSON.stringify(localDb)); } catch(e){}
@@ -1267,19 +1292,15 @@ async function autoDeleteExpiredRooms() {
 
   if (firebaseReady) {
     try {
-      const snap = await Promise.race([
-        fbRoomsRef.once('value'),
-        new Promise((_,reject) => setTimeout(() => reject(new Error('timeout')), 8000))
-      ]);
-      const data = snap.val() || {};
-      const expired = Object.values(data).filter(r => {
+      const rooms = await fetchRoomsREST();
+      const expired = rooms.filter(r => {
         if (!r.datetime) return false;
         return now - new Date(r.datetime).getTime() > ONE_WEEK_MS;
       });
-      await Promise.all(expired.map(r => fbRoomsRef.child(r.id).remove()));
+      await Promise.all(expired.map(r => deleteRoomREST(r.id)));
       if (expired.length) console.log(`自動削除: ${expired.length}件`);
     } catch(e) {
-      console.warn('自動削除スキップ（接続タイムアウト）:', e.message);
+      console.warn('自動削除スキップ:', e.message);
     }
   } else {
     let deleted = 0;

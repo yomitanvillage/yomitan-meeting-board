@@ -341,7 +341,12 @@ input[type="number"]{width:80px;}
       <h1>会議ルーム一覧</h1>
     </div>
     <div class="rooms-grid" id="rooms-grid">
-      <div class="empty-state"><p id="loading-msg">接続中…</p></div>
+      <div class="empty-state">
+        <p id="loading-msg">接続中…</p>
+        <p id="loading-sub" style="font-size:12px;color:var(--text3);margin-top:8px;display:none">
+          時間がかかっています。ページを再読み込みしてみてください。
+        </p>
+      </div>
     </div>
   </div>
 
@@ -540,11 +545,18 @@ const FIREBASE_CONFIG = {
 let firebaseReady = false;
 let fbRoomsRef = null;
 
+let _firebaseRetryCount = 0;
 function initFirebase() {
   if (!FIREBASE_CONFIG) { initNoFirebase(); return; }
-  // SDKがまだ読み込まれていなければリトライ
+  // SDKがまだ読み込まれていなければリトライ（最大20回=6秒）
   if (typeof firebase === 'undefined') {
-    console.warn('Firebase SDK not ready, retrying...');
+    _firebaseRetryCount++;
+    if (_firebaseRetryCount > 20) {
+      console.error('Firebase SDK load timeout, falling back to demo mode');
+      initNoFirebase();
+      return;
+    }
+    console.warn(`Firebase SDK not ready, retrying... (${_firebaseRetryCount})`);
     setTimeout(initFirebase, 300);
     return;
   }
@@ -1345,15 +1357,43 @@ function startApp() {
   updateSoundBtn();
 }
 
+// 8秒後も「接続中」のままなら案内メッセージを表示
+setTimeout(() => {
+  const sub = document.getElementById('loading-sub');
+  const msg = document.getElementById('loading-msg');
+  if (sub && msg && msg.textContent === '接続中…') {
+    sub.style.display = 'block';
+  }
+}, 8000);
+
 // ページ全体（外部スクリプト含む）の読み込み完了後に起動
-window.addEventListener('load', () => {
-  applyTheme(); // テーマだけ先に適用
+let _appStarted = false;
+
+function safeStartApp() {
+  if (_appStarted) return;
+  _appStarted = true;
   if (FIREBASE_CONFIG) {
     initFirebase();
   } else {
     initNoFirebase();
   }
+}
+
+// loadイベント
+window.addEventListener('load', () => {
+  applyTheme();
+  safeStartApp();
 });
+
+// loadが発火しない場合の保険（DOMContentLoaded）
+document.addEventListener('DOMContentLoaded', () => {
+  applyTheme();
+  // 2秒待ってもloadが来なければ強制起動
+  setTimeout(safeStartApp, 2000);
+});
+
+// さらに保険：5秒たっても起動していなければ強制起動
+setTimeout(safeStartApp, 5000);
 </script>
 </body>
 </html>

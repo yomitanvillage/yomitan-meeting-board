@@ -682,10 +682,31 @@ function renderRooms() {
     _renderRoomsHTML(rooms || []);
     return;
   }
-  // Firebase: 一覧はonce取得（リアルタイムは部屋詳細で行う）
-  fbRoomsRef.once('value', snap => {
-    const data = snap.val() || {};
-    _renderRoomsHTML(Object.values(data));
+  // Firebase: 一覧はonce取得（タイムアウト付き）
+  let roomsFetched = false;
+  const roomsTimer = setTimeout(() => {
+    if (!roomsFetched) {
+      dbg('⚠️ Firebaseデータ取得タイムアウト、再試行します');
+      fbRoomsRef.once('value').then(snap => {
+        roomsFetched = true;
+        _renderRoomsHTML(Object.values(snap.val() || {}));
+      }).catch(e => {
+        dbg('❌ 再試行失敗: ' + e.message);
+        _renderRoomsHTML([]);
+      });
+    }
+  }, 5000);
+
+  fbRoomsRef.once('value').then(snap => {
+    clearTimeout(roomsTimer);
+    if (roomsFetched) return;
+    roomsFetched = true;
+    dbg('✅ ルーム一覧取得成功');
+    _renderRoomsHTML(Object.values(snap.val() || {}));
+  }).catch(e => {
+    clearTimeout(roomsTimer);
+    dbg('❌ ルーム取得エラー: ' + e.message);
+    _renderRoomsHTML([]);
   });
 }
 
@@ -1245,14 +1266,21 @@ async function autoDeleteExpiredRooms() {
   const now = Date.now();
 
   if (firebaseReady) {
-    const snap = await fbRoomsRef.once('value');
-    const data = snap.val() || {};
-    const expired = Object.values(data).filter(r => {
-      if (!r.datetime) return false;
-      return now - new Date(r.datetime).getTime() > ONE_WEEK_MS;
-    });
-    await Promise.all(expired.map(r => fbRoomsRef.child(r.id).remove()));
-    if (expired.length) console.log(`自動削除: ${expired.length}件`);
+    try {
+      const snap = await Promise.race([
+        fbRoomsRef.once('value'),
+        new Promise((_,reject) => setTimeout(() => reject(new Error('timeout')), 8000))
+      ]);
+      const data = snap.val() || {};
+      const expired = Object.values(data).filter(r => {
+        if (!r.datetime) return false;
+        return now - new Date(r.datetime).getTime() > ONE_WEEK_MS;
+      });
+      await Promise.all(expired.map(r => fbRoomsRef.child(r.id).remove()));
+      if (expired.length) console.log(`自動削除: ${expired.length}件`);
+    } catch(e) {
+      console.warn('自動削除スキップ（接続タイムアウト）:', e.message);
+    }
   } else {
     let deleted = 0;
     Object.values(localDb).forEach(r => {
@@ -1338,10 +1366,10 @@ function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 function startApp() {
   dbg('startApp() 呼ばれた');
   loadLocalDb();
-  autoDeleteExpiredRooms();
   applyTheme();
-  showView('rooms');
+  showView('rooms');   // まず画面を表示
   updateSoundBtn();
+  autoDeleteExpiredRooms(); // 自動削除は描画後に非同期実行
   dbg('✅ 起動完了');
 }
 

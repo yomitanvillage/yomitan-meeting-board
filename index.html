@@ -341,7 +341,6 @@ input[type="number"]{width:80px;}
     <div class="rooms-grid" id="rooms-grid">
       <div class="empty-state">
         <p id="loading-msg">読み込み中…</p>
-        <div id="debug-info" style="font-size:11px;color:var(--text3);margin-top:16px;text-align:left;background:var(--bg3);padding:12px;border-radius:8px;line-height:2;max-width:320px;word-break:break-all"></div>
       </div>
     </div>
   </div>
@@ -1397,28 +1396,11 @@ function startApp() {
 
 
 // ページ全体（外部スクリプト含む）の読み込み完了後に起動
-// デバッグ情報表示
-function dbg(msg) {
-  const el = document.getElementById('debug-info');
-  if (!el) return;
-  const now = new Date().toLocaleTimeString('ja-JP');
-  el.innerHTML += `<div>[${now}] ${msg}</div>`;
-  console.log('[DEBUG]', msg);
-}
-
-// DOMContentLoaded時点の状態を記録
-document.addEventListener('DOMContentLoaded', () => {
-  dbg('DOMContentLoaded 発火');
-  dbg('firebase: ' + (typeof firebase !== 'undefined' ? '✅ 読込済' : '❌ 未読込'));
-  dbg('_fbLoadError: ' + (window._fbLoadError ? '❌ エラーあり' : '✅ なし'));
-  dbg('FIREBASE_CONFIG: ' + (FIREBASE_CONFIG ? '✅ あり' : '❌ なし'));
-});
+// デバッグ（コンソールのみ）
+function dbg(msg) { console.log('[DEBUG]', msg); }
 
 // ページ・外部スクリプトが全て読み込まれてから起動
 window.addEventListener('load', () => {
-  dbg('window.load 発火');
-  dbg('firebase: ' + (typeof firebase !== 'undefined' ? '✅ 読込済' : '❌ 未読込'));
-  dbg('_fbLoadError: ' + (window._fbLoadError ? '❌ エラーあり' : '✅ なし'));
   applyTheme();
   if (FIREBASE_CONFIG) {
     initFirebase();

@@ -18,6 +18,10 @@
 <!-- Firebase SDK (CDN) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+<script>
+// SDKロード確認フラグ
+window._firebaseSDKReady = (typeof firebase !== 'undefined');
+</script>
 
 <style>
 /* ── ダークモード（デフォルト） ── */
@@ -337,7 +341,7 @@ input[type="number"]{width:80px;}
       <h1>会議ルーム一覧</h1>
     </div>
     <div class="rooms-grid" id="rooms-grid">
-      <div class="empty-state"><p>読み込み中…</p></div>
+      <div class="empty-state"><p id="loading-msg">接続中…</p></div>
     </div>
   </div>
 
@@ -536,19 +540,28 @@ const FIREBASE_CONFIG = {
 let firebaseReady = false;
 let fbRoomsRef = null;
 
-if (FIREBASE_CONFIG) {
+function initFirebase() {
+  if (!FIREBASE_CONFIG) { initNoFirebase(); return; }
+  // SDKがまだ読み込まれていなければリトライ
+  if (typeof firebase === 'undefined') {
+    console.warn('Firebase SDK not ready, retrying...');
+    setTimeout(initFirebase, 300);
+    return;
+  }
   try {
-    firebase.initializeApp(FIREBASE_CONFIG);
-    fbRoomsRef = firebase.database().ref('rooms');
+    const app = firebase.apps.length
+      ? firebase.app()
+      : firebase.initializeApp(FIREBASE_CONFIG);
+    fbRoomsRef = firebase.database(app).ref('rooms');
     firebaseReady = true;
   } catch(e) {
     console.error('Firebase init error:', e);
+    initNoFirebase();
+    return;
   }
-}
 
-// Firebase接続状態バッジ
-const fbBadge = document.getElementById('firebase-status');
-if (firebaseReady) {
+  // 接続状態バッジ
+  const fbBadge = document.getElementById('firebase-status');
   firebase.database().ref('.info/connected').on('value', snap => {
     if (snap.val()) {
       fbBadge.innerHTML = '<span class="dot blink"></span>Firebase 同期中';
@@ -558,12 +571,18 @@ if (firebaseReady) {
       fbBadge.style.color = 'var(--ready-tx)';
     }
   });
-} else {
+
+  startApp();
+}
+
+function initNoFirebase() {
+  const fbBadge = document.getElementById('firebase-status');
   fbBadge.innerHTML = '<span class="dot"></span>デモモード';
   fbBadge.style.background = 'var(--ready-bg)';
   fbBadge.style.borderColor = 'var(--ready-bd)';
   fbBadge.style.color = 'var(--ready-tx)';
   document.getElementById('setup-banner').style.display = 'block';
+  startApp();
 }
 
 // ──────────────────────────────────────────
@@ -1318,11 +1337,23 @@ function esc(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;'
 // ──────────────────────────────────────────
 //  INIT
 // ──────────────────────────────────────────
-loadLocalDb();
-autoDeleteExpiredRooms();
-applyTheme();
-showView('rooms');
-updateSoundBtn();
+function startApp() {
+  loadLocalDb();
+  autoDeleteExpiredRooms();
+  applyTheme();
+  showView('rooms');
+  updateSoundBtn();
+}
+
+// ページ全体（外部スクリプト含む）の読み込み完了後に起動
+window.addEventListener('load', () => {
+  applyTheme(); // テーマだけ先に適用
+  if (FIREBASE_CONFIG) {
+    initFirebase();
+  } else {
+    initNoFirebase();
+  }
+});
 </script>
 </body>
 </html>

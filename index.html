@@ -356,6 +356,7 @@ input[type="number"]{width:80px;}
       <div class="admin-area">
         <div id="admin-label" class="admin-label" style="display:none">🔐 管理者モード</div>
         <button class="btn btn-sm" id="btn-admin-login" onclick="openAdminLogin()">🔐 管理者ログイン</button>
+        <button class="btn btn-sm" id="btn-edit-room-info" style="display:none" onclick="openEditRoomInfo()">✎ 部屋情報編集</button>
         <button class="btn btn-sm" id="btn-edit-groups" style="display:none" onclick="openEditGroups()">✎ グループ編集</button>
         <button class="btn btn-sm btn-danger" id="btn-delete-room" style="display:none" onclick="openDeleteRoom()">🗑 部屋を破棄</button>
         <button class="btn btn-sm btn-danger" id="btn-admin-logout" style="display:none" onclick="adminLogout()">ログアウト</button>
@@ -395,6 +396,70 @@ input[type="number"]{width:80px;}
     <div class="modal-footer">
       <button class="btn" onclick="closeModal('modal-delete-room')">キャンセル</button>
       <button class="btn btn-danger" onclick="deleteRoom()">破棄する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── MODAL: 部屋情報編集 ─── -->
+<div class="modal-overlay" id="modal-edit-room-info">
+  <div class="modal">
+    <h2>✎ 部屋情報を編集</h2>
+    <div class="form-group">
+      <label>会議名 <span style="color:#e74c3c">*</span></label>
+      <input type="text" id="ei-name" placeholder="例：庁議">
+    </div>
+    <div class="form-group">
+      <label>日時 <span style="color:#e74c3c">*</span></label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input type="date" id="ei-date" style="flex:1;min-width:140px">
+        <select id="ei-hour" style="width:72px"></select>
+        <span style="color:var(--text2);font-size:13px">時</span>
+        <select id="ei-minute" style="width:72px">
+          <option value="00">00</option>
+          <option value="05">05</option>
+          <option value="10">10</option>
+          <option value="15">15</option>
+          <option value="20">20</option>
+          <option value="25">25</option>
+          <option value="30">30</option>
+          <option value="35">35</option>
+          <option value="40">40</option>
+          <option value="45">45</option>
+          <option value="50">50</option>
+          <option value="55">55</option>
+        </select>
+        <span style="color:var(--text2);font-size:13px">分</span>
+      </div>
+      <div class="form-hint" style="color:var(--ready-tx);margin-top:6px">⚠ 会議日から1週間経過すると自動的に削除されます</div>
+    </div>
+    <div class="form-group">
+      <label>場所</label>
+      <input type="text" id="ei-place" placeholder="例：庁議室">
+    </div>
+    <div class="form-group">
+      <label>所属</label>
+      <input type="text" id="ei-affiliation" placeholder="例：〇〇課">
+    </div>
+    <div class="form-group">
+      <label>作成者 <span style="color:#e74c3c">*</span></label>
+      <input type="text" id="ei-creator">
+    </div>
+    <div class="form-group">
+      <label>「準備中」にする件数</label>
+      <input type="number" id="ei-prepare" min="1" max="10" style="width:80px">
+    </div>
+    <div class="form-group">
+      <label>ステータス名のカスタマイズ</label>
+      <div class="status-editor">
+        <div class="status-row"><span class="s-label">完了済み</span><input type="text" id="ei-sname-done"></div>
+        <div class="status-row"><span class="s-label">進行中</span> <input type="text" id="ei-sname-active"></div>
+        <div class="status-row"><span class="s-label">次の準備</span><input type="text" id="ei-sname-ready"></div>
+        <div class="status-row"><span class="s-label">まだ先</span> <input type="text" id="ei-sname-wait"></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal('modal-edit-room-info')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveRoomInfo()">保存する</button>
     </div>
   </div>
 </div>
@@ -845,11 +910,12 @@ function renderRoom(room) {
   }
 
   // Admin UI
-  document.getElementById('btn-admin-login').style.display  = isAdmin ? 'none' : '';
-  document.getElementById('btn-edit-groups').style.display  = isAdmin ? '' : 'none';
-  document.getElementById('btn-delete-room').style.display  = isAdmin ? '' : 'none';
-  document.getElementById('btn-admin-logout').style.display = isAdmin ? '' : 'none';
-  document.getElementById('admin-label').style.display      = isAdmin ? '' : 'none';
+  document.getElementById('btn-admin-login').style.display     = isAdmin ? 'none' : '';
+  document.getElementById('btn-edit-room-info').style.display = isAdmin ? '' : 'none';
+  document.getElementById('btn-edit-groups').style.display    = isAdmin ? '' : 'none';
+  document.getElementById('btn-delete-room').style.display    = isAdmin ? '' : 'none';
+  document.getElementById('btn-admin-logout').style.display   = isAdmin ? '' : 'none';
+  document.getElementById('admin-label').style.display        = isAdmin ? '' : 'none';
 
   // 「対応中」になった行を検知
   const changedIdxs = new Set();
@@ -1056,6 +1122,87 @@ async function getRoom(id) {
     return room;
   }
   return localDb[id] || null;
+}
+
+// ──────────────────────────────────────────
+//  ROOM INFO EDIT
+// ──────────────────────────────────────────
+async function openEditRoomInfo() {
+  const room = await getRoom(currentRoomId);
+  if (!room || !isAdmin) return;
+
+  // 時セレクト初期化
+  const hourSel = document.getElementById('ei-hour');
+  if (!hourSel.options.length) {
+    for (let h = 0; h < 24; h++) {
+      const o = document.createElement('option');
+      o.value = String(h).padStart(2,'0');
+      o.textContent = String(h).padStart(2,'0');
+      hourSel.appendChild(o);
+    }
+  }
+
+  // 既存の値をフォームにセット
+  document.getElementById('ei-name').value        = room.name || '';
+  document.getElementById('ei-place').value       = room.place || '';
+  document.getElementById('ei-affiliation').value = room.affiliation || '';
+  document.getElementById('ei-creator').value     = room.creator || '';
+  document.getElementById('ei-prepare').value     = room.prepareCount || 2;
+
+  // 日時をdate/hour/minuteに分解
+  if (room.datetime) {
+    const dt = new Date(room.datetime);
+    const pad = n => String(n).padStart(2,'0');
+    document.getElementById('ei-date').value   = `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+    document.getElementById('ei-hour').value   = pad(dt.getHours());
+    document.getElementById('ei-minute').value = pad(Math.floor(dt.getMinutes()/5)*5);
+  } else {
+    document.getElementById('ei-date').value = '';
+  }
+
+  // ステータス名
+  const sn = room.statusNames || {};
+  document.getElementById('ei-sname-done').value   = sn.done   || '済み';
+  document.getElementById('ei-sname-active').value = sn.active || '対応中';
+  document.getElementById('ei-sname-ready').value  = sn.ready  || '準備中';
+  document.getElementById('ei-sname-wait').value   = sn.wait   || '待機中';
+
+  openModal('modal-edit-room-info');
+}
+
+async function saveRoomInfo() {
+  const name    = document.getElementById('ei-name').value.trim();
+  const creator = document.getElementById('ei-creator').value.trim();
+  const fDate   = document.getElementById('ei-date').value;
+  const fHour   = document.getElementById('ei-hour').value;
+  const fMin    = document.getElementById('ei-minute').value;
+  const dt      = fDate ? `${fDate}T${fHour}:${fMin}` : '';
+
+  if (!name)    { showToast('会議名を入力してください'); return; }
+  if (!dt)      { showToast('日時を入力してください'); return; }
+  if (!creator) { showToast('作成者を入力してください'); return; }
+
+  const room = await getRoom(currentRoomId);
+  if (!room) return;
+
+  room.name        = name;
+  room.datetime    = dt;
+  room.place       = document.getElementById('ei-place').value.trim();
+  room.affiliation = document.getElementById('ei-affiliation').value.trim();
+  room.creator     = creator;
+  room.prepareCount = parseInt(document.getElementById('ei-prepare').value) || 2;
+  room.statusNames = {
+    done:   document.getElementById('ei-sname-done').value   || '済み',
+    active: document.getElementById('ei-sname-active').value || '対応中',
+    ready:  document.getElementById('ei-sname-ready').value  || '準備中',
+    wait:   document.getElementById('ei-sname-wait').value   || '待機中',
+  };
+
+  recomputeStatuses(room);
+  await saveRoom(room);
+  closeModal('modal-edit-room-info');
+  showToast('部屋情報を更新しました');
+  if (!firebaseReady) renderRoom(room);
 }
 
 // ──────────────────────────────────────────
